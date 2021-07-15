@@ -1,5 +1,8 @@
 package server;
+import com.google.gson.JsonArray;
 import server.Worker;
+import server.util.InputReader;
+import server.util.OutputWriter;
 
 import java.io.IOException;
 import java.net.InetAddress;
@@ -10,12 +13,12 @@ public class Main {
     private static ServerSocket serverSocket;
     private static final String filename = "./src/server/data/db.json";
     public static void main(String[] args) {
-        Database database = new Database(filename);
+
         sayHello();
         createSocket();
-        createClientSocket(database);
+        Database.INSTANCE.init();
+        startNewThread();
         closeSocket();
-
     }
 
     public static void sayHello() {
@@ -43,18 +46,30 @@ public class Main {
         return null;
     }
 
-    public static void createClientSocket(Database database) {
-        while (!serverSocket.isClosed()) {
-            final Socket clientSocket = getConnection();
-            if (clientSocket != null){
-                new Thread(new Worker(clientSocket, serverSocket, database)).start();
-            }
-        }
-    }
+
     private static void closeSocket() {
         try {
             serverSocket.close();
         } catch (Exception ignored) {
+        }
+    }
+
+    public static void startNewThread() {
+        while (!serverSocket.isClosed()){
+            Socket socket = null;
+            try {
+                socket = getConnection();
+                InputReader inputReader = new InputReader(socket);
+                OutputWriter outputWriter = new OutputWriter(socket);
+                Thread thread = new Worker(socket, inputReader, outputWriter, serverSocket);
+                thread.start();
+            } catch (Exception e) {
+                try{
+                serverSocket.close();
+            } catch (IOException exception) {
+                    exception.printStackTrace();
+                }
+            }
         }
     }
 }

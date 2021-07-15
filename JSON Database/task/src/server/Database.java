@@ -1,111 +1,140 @@
 package server;
 
 import com.google.gson.Gson;
+import com.google.gson.JsonArray;
+import com.google.gson.JsonElement;
+import com.google.gson.JsonObject;
 
-import java.io.FileNotFoundException;
-import java.io.FileReader;
 import java.io.FileWriter;
 import java.io.IOException;
-import java.util.Map;
+import java.nio.file.Files;
+import java.nio.file.Path;
+import java.nio.file.Paths;
+import java.util.NoSuchElementException;
 import java.util.concurrent.locks.Lock;
 import java.util.concurrent.locks.ReadWriteLock;
 import java.util.concurrent.locks.ReentrantReadWriteLock;
 
-public class Database {
+public enum Database {
+    INSTANCE;
 
-    ReadWriteLock lock;
-    Lock readLock;
-    Lock writeLock;
-    String filename;
+    private JsonObject database;
+    private ReadWriteLock lock;
+    private final Lock readLock;
+    private final Lock writeLock;
 
-    public Database(String filename) {
-        this.filename = filename;
+    {
         lock = new ReentrantReadWriteLock();
-        readLock = lock.readLock();
         writeLock = lock.writeLock();
-        try {
-            writeLock.lock();
-
-            FileWriter writer = new FileWriter(filename);
-            writer.write("{}");
-            writer.close();
-
-            writeLock.unlock();
-        } catch (Exception e) {
-            e.printStackTrace();
-        }
-
+        readLock = lock.readLock();
     }
+    Database() {}
 
-    public boolean set(String key, String value) {
-        boolean result = false;
+    public void init() {
         try {
-            writeLock.lock();
-
-            FileReader reader = new FileReader(filename);
-            Map<String, String> map = new Gson().fromJson(reader, Map.class);
-            reader.close();
-
-            map.put(key, value);
-            FileWriter writer = new FileWriter(filename);
-            writer.write(new Gson().toJson(map));
-            writer.close();
-
-            writeLock.unlock();
-
-            result = true;
-        } catch (FileNotFoundException e) {
-            e.printStackTrace();
+            String content = new String(Files.readAllBytes(Paths.get("./src/server/data/db.json")));
+            database = new Gson().fromJson(content, JsonObject.class);
         } catch (IOException e) {
             e.printStackTrace();
         }
-        return result;
     }
 
-    public String get(String key) {
-        String result = null;
+    //Setting data to Json
+    public void set(JsonElement key, JsonElement value) {
+        try {
+            writeLock.lock();
+            //adding pait key value if db is empty
+            if (database == null){
+                database = new JsonObject();
+                database.add(key.getAsString(), value);
+            } else {
+                //if database is not Empty checkout if key is primitive or array
+                if (key.isJsonPrimitive()){
+                    database.add(key.getAsString(), value);
+                }
+                else if (key.isJsonArray()){
+                    JsonArray keys = key.getAsJsonArray();
+                    String addition = keys.remove(keys.size() - 1).getAsString();
+                    findElement(keys, true).getAsJsonObject().add(addition, value);
+                } else {
+                    throw new NoSuchElementException();
+                }
+            }
+            writoToDataBase();
+        } finally {
+            writeLock.unlock();
+        }
+    }
+
+    public JsonElement get(JsonElement key) {
         try {
             readLock.lock();
-
-            FileReader reader = new FileReader(filename);
-            Map <String, String> map = new Gson().fromJson(reader, Map.class);
-
-            reader.close();
-
-            result = map.get(key);
-
+            if (key.isJsonPrimitive() && database.has(key.getAsString())){
+                return (JsonElement)database.get(key.getAsString());
+            }
+            else if (key.isJsonArray()){
+                return (JsonElement) findElement(key.getAsJsonArray(), true);
+            }
+            throw new NoSuchElementException();
+        } finally {
             readLock.unlock();
-        } catch (FileNotFoundException e) {
-            e.printStackTrace();
+        }
+    }
+
+    public void delete(JsonElement key){
+        try {
+            writeLock.lock();
+            if (key.isJsonPrimitive() && database.has(key.getAsString())){
+                database.remove(key.getAsString());
+            }
+            else if (key.isJsonArray()){
+                JsonArray keys = key.getAsJsonArray();
+                String toDelete = keys.remove(keys.size() - 1).getAsString();
+                findElement(keys, true).getAsJsonObject().remove(toDelete);
+            }
+            writoToDataBase();
+        } finally {
+            writeLock.unlock();
+        }
+    }
+
+
+
+    private JsonElement findElement (JsonArray keys, boolean ifAbsent){
+        JsonElement tmp = database;
+        if (ifAbsent) {
+            //searching keys
+            for(JsonElement key: keys){
+                //if there is no such key create a new instance
+                if(!tmp.getAsJsonObject().has(key.getAsString())){
+                    tmp.getAsJsonObject().add(key.getAsString(), new JsonObject());
+                }
+                //if the key is found use it
+                tmp = tmp.getAsJsonObject().get(key.getAsString());
+            }
+        }
+        else {
+            for(JsonElement key: keys){
+                //if the key isn't primitive or it doesn't exist in databse
+                if(!key.isJsonPrimitive() || !tmp.getAsJsonObject().has(key.getAsString())) {
+                    throw new NoSuchElementException();
+                }
+                tmp = tmp.getAsJsonObject().get(key.getAsString());
+            }
+        }
+        return tmp;
+    }
+
+
+
+    private void writoToDataBase() {
+        try {
+            FileWriter writer = new FileWriter("./src/client/data/db.json");
+            writer.write(database.toString());
+            writer.close();
         } catch (IOException e) {
             e.printStackTrace();
         }
-        return result;
-    }
-
-    public boolean delete(String key){
-        boolean result = false;
-
-        try {
-            writeLock.lock();
-
-            FileReader reader = new FileReader(filename);
-            Map<String, String> map = new Gson().fromJson(reader, Map.class);
-            reader.close();
-
-            if (map.containsKey(key)) {
-                map.remove(key);
-                result = true;
-            }
-
-            FileWriter writer = new FileWriter(filename);
-            writer.write(new Gson().toJson(map));
-            writer.close();
-
-            writeLock.unlock();
-        } catch (Exception e) {
-            e.printStackTrace();
-        }
-        return result;
     }
 }
+

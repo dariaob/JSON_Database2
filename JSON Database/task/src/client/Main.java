@@ -1,17 +1,15 @@
 package client;
 
 import com.beust.jcommander.JCommander;
-import com.beust.jcommander.Parameter;
+import com.google.gson.GsonBuilder;
 import server.util.InputReader;
 
-import java.io.File;
-import java.io.FileNotFoundException;
+import java.io.BufferedReader;
+import java.io.IOException;
 import java.net.InetSocketAddress;
 import java.net.Socket;
-import java.util.LinkedHashMap;
-import java.util.Map;
-import java.util.Scanner;
-
+import java.nio.file.Files;
+import java.nio.file.Paths;
 
 import server.util.OutputWriter;
 import com.google.gson.Gson;
@@ -20,31 +18,18 @@ import com.google.gson.Gson;
 public class Main {
     final static String address = "127.0.0.1";
     final static int port = 23456;
-    Map <String, String> request = new LinkedHashMap<>();
 
     private static Socket clientSocket;
 
-    @Parameter(names = {"--type", "-t"})
-    String type;
-    @Parameter(names = {"--value", "-v"})
-    String value;
-    @Parameter(names = {"--key", "-k"})
-    String key;
-    @Parameter(names = {"--input", "-in"})
-    String fileName;
+    public static void main(final String[] args) {
+        Task task = new Task();
+        JCommander jCommander = new JCommander(task);
+        jCommander.setProgramName("JSON Database");
 
-    public static void main(final String[] args)  {
-
-        Main main = new Main();
         JCommander.newBuilder()
-                .addObject(main)
+                .addObject(task)
                 .build()
                 .parse(args);
-        main.run();
-    }
-    String output = "";
-
-    public void run() {
 
         createSocket();
 
@@ -53,37 +38,16 @@ public class Main {
 
         System.out.println("Client started!");
 
-        if (fileName == null) {
-            createRequest(type, key, value);
-            Gson gson = new Gson();
-            output = gson.toJson(request);
-        } else {
-            try {
-                File file = new File("src/client/data/" + fileName);
-                Scanner scanner = new Scanner(file);
-                output = scanner.nextLine();
-            } catch (FileNotFoundException e) {
-                e.printStackTrace();
-            }
-        }
-        System.out.println("Sent: " + output);
-        outputWriter.sendMsg(output);
+        String request = task.toJson();
+        System.out.println("Sent: " + request);
+        outputWriter.sendMsg(request);
 
-        String received = reader.read().trim();
+        String received = reader.read();
         System.out.println("Received: " + received);
 
         closeSocket();
     }
 
-    private void createRequest(String type, String key, String value) {
-        request.put("type", type);
-        if (key != null){
-            request.put("key", key);
-        }
-        if (value != null){
-            request.put("value", value);
-        }
-    }
 
     /**
      * Close the connection
